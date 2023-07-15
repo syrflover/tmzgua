@@ -110,6 +110,7 @@ impl EventHandler for Handler {
                 let mut x = ctx.data.write().await;
                 let say_cache = x.get_mut::<SayCache>().unwrap();
 
+                // TODO: save users to cache dir
                 say_cache
                     .users
                     .insert(message.author.id, (), Duration::from_secs(3600));
