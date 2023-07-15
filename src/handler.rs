@@ -13,7 +13,7 @@ use serenity::{
         channel::Message,
         gateway::Ready,
         id::{ChannelId, GuildId},
-        prelude::ReactionType,
+        prelude::{Activity, ReactionType},
     },
     prelude::*,
 };
@@ -81,16 +81,10 @@ async fn make_siri_voice(p: impl AsRef<Path>, content: &str) -> io::Result<Input
     match File::open(p).await {
         Ok(r) => Ok(encode_to_source(r.into_std().await).await.unwrap()),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            // return Ok(None)
-            // TODO: reaction 'X'
             // TODO: err 구분해야됨
             Err(err)
         }
-        Err(err) => {
-            // return Err(err.into())
-            // TODO: reaction 'X'
-            Err(err)
-        }
+        Err(err) => Err(err),
     }
 }
 
@@ -101,6 +95,16 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
         // println!("{};length={}", message.content, message.content.len());
 
+        if message.content == "> help" {
+            let help_message = "마지막으로 활성화한 시간 또는 말한 시간 기준으로 1시간동안 아무 말도 하지 않으면 자동으로 비활성 돼요.\n\n`> sayEnable`\n`> sayDisable`";
+
+            if let Err(err) = message.reply(&ctx.http, help_message).await {
+                eprintln!("{err}");
+            }
+
+            return;
+        }
+
         if message.content == "> sayEnable" {
             {
                 let mut x = ctx.data.write().await;
@@ -108,7 +112,7 @@ impl EventHandler for Handler {
 
                 say_cache
                     .users
-                    .insert(message.author.id, (), Duration::from_secs(300));
+                    .insert(message.author.id, (), Duration::from_secs(3600));
             }
 
             if let Err(err) = message
@@ -147,7 +151,7 @@ impl EventHandler for Handler {
 
             say_cache
                 .users
-                .insert(message.author.id, (), Duration::from_secs(300));
+                .insert(message.author.id, (), Duration::from_secs(3600));
 
             (r, say_cache.path.clone())
         };
@@ -177,7 +181,22 @@ impl EventHandler for Handler {
 
         handler.stop();
 
-        let mut source = make_siri_voice(&save_path, &message.content).await.unwrap();
+        let mut source = match make_siri_voice(&save_path, &message.content).await {
+            Ok(r) => r,
+            Err(err) => {
+                eprintln!("{err}");
+
+                if let Err(err) = message
+                    .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                    .await
+                {
+                    eprintln!("{err}");
+                }
+
+                return;
+            }
+        };
+
         let mut track = handler.play_only_source(source);
 
         let mut try_count = 0;
@@ -224,6 +243,8 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, ctx: Context, _ready: Ready) {
+        ctx.set_activity(Activity::playing("> help")).await;
+
         let mut x = ctx.data.write().await;
 
         let cache_path = x.get::<Config>().unwrap().cache().to_owned();
