@@ -66,6 +66,7 @@ async fn get_voice_handler(
     join_result.map(|_| handler_lock)
 }
 
+#[cfg(target_os = "macos")]
 async fn make_siri_voice(p: impl AsRef<Path>, content: &str) -> io::Result<Input> {
     let p = p.as_ref();
 
@@ -169,7 +170,10 @@ impl EventHandler for Handler {
         message.content.hash(&mut hasher);
         let hashed = hasher.finish();
 
+        #[cfg(target_os = "macos")]
         let save_path = cache_path.join(format!("{hashed}.aiff"));
+        #[cfg(target_os = "windows")]
+        let save_path = todo!();
 
         let (guild_id, channel_id) = {
             let x = ctx.data.read().await;
@@ -182,6 +186,7 @@ impl EventHandler for Handler {
 
         handler.stop();
 
+        #[cfg(target_os = "macos")]
         let mut source = match make_siri_voice(&save_path, &message.content).await {
             Ok(r) => r,
             Err(err) => {
@@ -197,6 +202,8 @@ impl EventHandler for Handler {
                 return;
             }
         };
+        #[cfg(target_os = "windows")]
+        let mut source = todo!();
 
         let mut track = handler.play_only_source(source);
 
@@ -234,7 +241,15 @@ impl EventHandler for Handler {
                 PlayMode::Play => break,
 
                 PlayMode::End => {
-                    source = make_siri_voice(&save_path, &message.content).await.unwrap();
+                    #[cfg(target_os = "macos")]
+                    {
+                        source = make_siri_voice(&save_path, &message.content).await.unwrap();
+                    }
+                    #[cfg(target_os = "windows")]
+                    {
+                        source = todo!();
+                    }
+
                     track = handler.play_only_source(source);
                 }
 
