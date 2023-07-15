@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use regex::Regex;
 use serenity::{
     model::{
         channel::Message,
@@ -25,6 +26,33 @@ use songbird::{
 use tokio::{fs::File, process::Command};
 
 use crate::{cfg::Config, encode_to_source::encode_to_source, say_cache::SayCache};
+
+fn filter_regex(x: &str) -> bool {
+    // const replaceRegExp: [RegExp, string][] = [
+    //     // [/-|"|\\|'|\||`|\$/g, ''], // bug fix
+
+    //     [/~/g, ''], // bug fix
+    //     [/<@[0-9]+>/g, ''], // user id
+    //     [/<#[0-9]+>/g, ''], // channel id
+    //     [/<:.+:[0-9]+>/g, ''], // custom emoji id
+    // ];
+
+    // const ignoreRegExp: RegExp[] = [
+    //     /(http|https|ftp|telnet|news|mms):\/\/[^\"'\s()]+/i, // url
+    //     /```.+```/is, // code block
+    // ];
+    let url_regex = Regex::new(r#"/(http|https|ftp|telnet|news|mms):\/\/[^\"'\s()]+/i"#).unwrap();
+    let code_block_regex = Regex::new(r#"```.+```/is"#).unwrap();
+    let user_id_regex = Regex::new(r#"<@[0-9]+>"#).unwrap();
+    let channel_id_regex = Regex::new(r#"<#[0-9]+>"#).unwrap();
+    let custom_emoji_id_regex = Regex::new(r#"<:.+:[0-9]+>"#).unwrap();
+
+    url_regex.find(x).is_some()
+        || code_block_regex.find(x).is_some()
+        || user_id_regex.find(x).is_some()
+        || channel_id_regex.find(x).is_some()
+        || custom_emoji_id_regex.find(x).is_some()
+}
 
 async fn get_voice_handler(
     ctx: &Context,
@@ -127,7 +155,10 @@ impl EventHandler for Handler {
         if !say {
             return;
         }
-        // TODO: say
+
+        if filter_regex(&message.content) {
+            return;
+        }
 
         let mut hasher = DefaultHasher::new();
         message.content.hash(&mut hasher);
