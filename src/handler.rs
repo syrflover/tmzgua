@@ -151,9 +151,11 @@ impl EventHandler for Handler {
 
             let r = say_cache.users.get(&message.author.id).is_some();
 
-            say_cache
-                .users
-                .insert(message.author.id, (), Duration::from_secs(3600));
+            if r {
+                say_cache
+                    .users
+                    .insert(message.author.id, (), Duration::from_secs(3600));
+            }
 
             (r, say_cache.path.clone())
         };
