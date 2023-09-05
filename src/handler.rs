@@ -12,8 +12,8 @@ use serenity::{
     model::{
         channel::Message,
         gateway::Ready,
-        id::{ChannelId, GuildId},
-        prelude::{Activity, ReactionType},
+        id::{ChannelId, GuildId, UserId},
+        prelude::{Activity, MessageType, ReactionType},
     },
     prelude::*,
 };
@@ -23,7 +23,11 @@ use songbird::{
     tracks::{PlayMode, TrackError},
     Call,
 };
-use tokio::{fs::File, process::Command};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+};
 
 use crate::{cfg::Config, encode_to_source::encode_to_source, say_cache::SayCache};
 
@@ -46,12 +50,14 @@ fn filter_regex(x: &str) -> bool {
     let user_id_regex = Regex::new(r#"<@[0-9]+>"#).unwrap();
     let channel_id_regex = Regex::new(r#"<#[0-9]+>"#).unwrap();
     let custom_emoji_id_regex = Regex::new(r#"<:.+:[0-9]+>"#).unwrap();
+    let external_custom_emoji_regex = Regex::new(r#"<.{0,1}:[0-9]+>"#).unwrap(); // <a:DDo:1055872203473825852>
 
     url_regex.find(x).is_some()
         || code_block_regex.find(x).is_some()
         || user_id_regex.find(x).is_some()
         || channel_id_regex.find(x).is_some()
         || custom_emoji_id_regex.find(x).is_some()
+        || external_custom_emoji_regex.find(x).is_some()
 }
 
 async fn get_voice_handler(
@@ -94,7 +100,20 @@ pub struct Handler;
 #[async_trait::async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
+        let cfg = {
+            let x = ctx.data.read().await;
+            x.get::<Config>().unwrap().clone()
+        };
+
         // println!("{};length={}", message.content, message.content.len());
+
+        if message.guild_id.filter(|x| *x == cfg.guild_id()).is_none() {
+            return;
+        }
+
+        if message.kind != MessageType::Regular {
+            return;
+        }
 
         if message.content == "> help" {
             let help_message = "마지막으로 활성화한 시간 또는 말한 시간 기준으로 1시간동안 아무 말도 하지 않으면 자동으로 비활성 돼요.\n\n`> sayEnable`\n`> sayDisable`";
@@ -223,7 +242,7 @@ impl EventHandler for Handler {
 
             try_count += 1;
 
-            let play_result = [track.set_volume(0.15), track.play()]
+            let play_result = [track.set_volume(0.225), track.play()]
                 .into_iter()
                 .collect::<Result<(), _>>();
 
@@ -258,6 +277,29 @@ impl EventHandler for Handler {
                 _ => {}
             }
         }
+
+        let enabled_users = {
+            let x = ctx.data.read().await;
+            let say_cache = x.get::<SayCache>().unwrap();
+
+            say_cache.to_vec()
+        };
+
+        let users_db = cache_path.join("users.json");
+
+        let mut f = match File::create(&users_db).await {
+            Ok(r) => r,
+            Err(_err) => {
+                let mut xs = Vec::new();
+                let mut f = File::open(&users_db).await.unwrap();
+                f.read_to_end(&mut xs).await.unwrap();
+                f
+            }
+        };
+
+        f.write_all(&serde_json::to_vec(&enabled_users).unwrap())
+            .await
+            .unwrap();
     }
 
     async fn ready(&self, ctx: Context, _ready: Ready) {
@@ -267,8 +309,20 @@ impl EventHandler for Handler {
 
         let cache_path = x.get::<Config>().unwrap().cache().to_owned();
 
-        // TODO: synchronize sayEnable user list to json
-        x.insert::<SayCache>(SayCache::new(&cache_path));
+        let mut xs = Vec::new();
+
+        let users: Vec<UserId> = match File::open(cache_path.join("users.json")).await {
+            Ok(mut r) => {
+                r.read_to_end(&mut xs).await.unwrap();
+                serde_json::from_slice(&xs).unwrap()
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(err) => {
+                panic!("{err}");
+            }
+        };
+
+        x.insert::<SayCache>(SayCache::from((users, cache_path.as_path())));
 
         println!("ready");
     }

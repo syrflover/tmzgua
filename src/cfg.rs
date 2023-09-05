@@ -6,7 +6,7 @@ use serenity::{
     prelude::TypeMapKey,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     token: String,
     guild_id: u64,
