@@ -324,6 +324,6 @@ impl EventHandler for Handler {
 
         x.insert::<SayCache>(SayCache::from((users, cache_path.as_path())));
 
-        println!("ready");
+        println!("{} is ready", ctx.cache.current_user().name);
     }
 }
