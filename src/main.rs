@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use serenity::{
     framework::StandardFramework, futures::future::join_all, prelude::GatewayIntents, Client,
 };
 use songbird::SerenityInit;
 use tap::Pipe;
 use tmzgua::{cfg::Config, handler::Handler};
+use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() {
@@ -41,7 +44,17 @@ async fn main() {
                 x.insert::<Config>(cfg);
             }
 
-            client.start().await.unwrap();
+            let mut r = None;
+
+            loop {
+                if let Some(err) = r {
+                    eprintln!("{err}");
+                }
+
+                sleep(Duration::from_secs(5)).await;
+
+                r = client.start().await.err();
+            }
         });
 
         tasks.push(task);

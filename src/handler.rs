@@ -120,6 +120,11 @@ impl EventHandler for Handler {
 
             if let Err(err) = message.reply(&ctx.http, help_message).await {
                 eprintln!("{err}");
+
+                message
+                    .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                    .await
+                    .ok();
             }
 
             return;
@@ -130,18 +135,24 @@ impl EventHandler for Handler {
                 let mut x = ctx.data.write().await;
                 let say_cache = x.get_mut::<SayCache>().unwrap();
 
-                // TODO: save users to cache dir
                 say_cache
                     .users
                     .insert(message.author.id, (), Duration::from_secs(3600));
+
+                if let Err(err) = save_enabled_users(say_cache.to_vec(), &say_cache.path).await {
+                    eprintln!("{err}");
+
+                    message
+                        .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                        .await
+                        .ok();
+                }
             }
 
-            if let Err(err) = message
+            message
                 .react(&ctx.http, ReactionType::Unicode("✅".to_owned()))
                 .await
-            {
-                eprintln!("{err}");
-            }
+                .ok();
 
             return;
         }
@@ -152,14 +163,21 @@ impl EventHandler for Handler {
                 let say_cache = x.get_mut::<SayCache>().unwrap();
 
                 let _r = say_cache.users.remove(&message.author.id);
+
+                if let Err(err) = save_enabled_users(say_cache.to_vec(), &say_cache.path).await {
+                    eprintln!("{err}");
+
+                    message
+                        .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                        .await
+                        .ok();
+                }
             }
 
-            if let Err(err) = message
+            message
                 .react(&ctx.http, ReactionType::Unicode("✅".to_owned()))
                 .await
-            {
-                eprintln!("{err}");
-            }
+                .ok();
 
             return;
         }
@@ -202,7 +220,19 @@ impl EventHandler for Handler {
             (x.guild_id(), x.channel_id())
         };
 
-        let handler = get_voice_handler(&ctx, guild_id, channel_id).await.unwrap();
+        let handler = match get_voice_handler(&ctx, guild_id, channel_id).await {
+            Ok(r) => r,
+            Err(err) => {
+                eprintln!("{err}");
+
+                message
+                    .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                    .await
+                    .ok();
+
+                return;
+            }
+        };
         let mut handler = handler.lock().await;
 
         handler.stop();
@@ -213,12 +243,10 @@ impl EventHandler for Handler {
             Err(err) => {
                 eprintln!("{err}");
 
-                if let Err(err) = message
+                message
                     .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
                     .await
-                {
-                    eprintln!("{err}");
-                }
+                    .ok();
 
                 return;
             }
@@ -264,7 +292,20 @@ impl EventHandler for Handler {
                 PlayMode::End => {
                     #[cfg(target_os = "macos")]
                     {
-                        source = make_siri_voice(&save_path, &message.content).await.unwrap();
+                        match make_siri_voice(&save_path, &message.content).await {
+                            Ok(r) => {
+                                source = r;
+                            }
+                            Err(err) => {
+                                eprintln!("{err}");
+
+                                message
+                                    .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                                    .await
+                                    .ok();
+                                return;
+                            }
+                        }
                     }
                     #[cfg(target_os = "windows")]
                     {
@@ -285,21 +326,14 @@ impl EventHandler for Handler {
             say_cache.to_vec()
         };
 
-        let users_db = cache_path.join("users.json");
+        if let Err(err) = save_enabled_users(enabled_users, &cache_path).await {
+            eprintln!("{err}");
 
-        let mut f = match File::create(&users_db).await {
-            Ok(r) => r,
-            Err(_err) => {
-                let mut xs = Vec::new();
-                let mut f = File::open(&users_db).await.unwrap();
-                f.read_to_end(&mut xs).await.unwrap();
-                f
-            }
-        };
-
-        f.write_all(&serde_json::to_vec(&enabled_users).unwrap())
-            .await
-            .unwrap();
+            message
+                .react(&ctx.http, ReactionType::Unicode("❌".to_owned()))
+                .await
+                .ok();
+        }
     }
 
     async fn ready(&self, ctx: Context, _ready: Ready) {
@@ -326,4 +360,21 @@ impl EventHandler for Handler {
 
         println!("{} is ready", ctx.cache.current_user().name);
     }
+}
+
+async fn save_enabled_users(enabled_users: Vec<UserId>, cache_path: &Path) -> io::Result<()> {
+    let p = cache_path.join("users.json");
+
+    let mut f = match File::create(&p).await {
+        Ok(r) => r,
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => File::open(&p).await?,
+        Err(err) => {
+            return Err(err);
+        }
+    };
+
+    f.write_all(&serde_json::to_vec(&enabled_users).unwrap())
+        .await?;
+
+    Ok(())
 }
