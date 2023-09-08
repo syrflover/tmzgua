@@ -1,5 +1,4 @@
 use std::{
-    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     io,
     path::Path,
@@ -7,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use fnv::FnvHasher;
 use regex::Regex;
 use serenity::{
     model::{
@@ -205,7 +205,7 @@ impl EventHandler for Handler {
             return;
         }
 
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FnvHasher::default();
         message.content.hash(&mut hasher);
         let hashed = hasher.finish();
 
