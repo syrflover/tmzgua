@@ -99,6 +99,47 @@ pub struct Handler;
 
 #[async_trait::async_trait]
 impl EventHandler for Handler {
+    // async fn voice_state_update(
+    //     &self,
+    //     ctx: Context,
+    //     _old_state: Option<VoiceState>,
+    //     new_state: VoiceState,
+    // ) {
+    //     println!("{new_state:?}");
+
+    //     let VoiceState {
+    //         guild_id,
+    //         channel_id,
+    //         user_id,
+    //         ..
+    //     } = new_state;
+
+    //     let Some(guild_id) = guild_id else { return };
+
+    //     let Some(channel_id) = channel_id else { return };
+
+    //     let Ok(user) = user_id.to_user(&ctx.http).await else {
+    //         return;
+    //     };
+
+    //     if user.bot {
+    //         return;
+    //     }
+
+    //     let mut x = ctx.data.write().await;
+    //     let say_cache = x.get_mut::<SayCache>().unwrap();
+
+    //     say_cache.users.remove(&user.id);
+
+    //     if say_cache.users.is_empty() {
+    //         let Ok(handler) = get_voice_handler(&ctx, guild_id, channel_id).await else {
+    //             return;
+    //         };
+
+    //         handler.lock().await.leave().await.ok();
+    //     }
+    // }
+
     async fn message(&self, ctx: Context, message: Message) {
         let cfg = {
             let x = ctx.data.read().await;
@@ -116,7 +157,7 @@ impl EventHandler for Handler {
         }
 
         if message.content == "> help" {
-            let help_message = "마지막으로 활성화한 시간 또는 말한 시간 기준으로 1시간동안 아무 말도 하지 않으면 자동으로 비활성 돼요.\n\n`> sayEnable`\n`> sayDisable`";
+            let help_message = "마지막으로 활성화한 시간 또는 말한 시간 기준으로 4시간동안 아무 말도 하지 않으면 자동으로 비활성 돼요.\n\n`> sayEnable`\n`> sayDisable`";
 
             if let Err(err) = message.reply(&ctx.http, help_message).await {
                 eprintln!("{err}");
@@ -137,7 +178,7 @@ impl EventHandler for Handler {
 
                 say_cache
                     .users
-                    .insert(message.author.id, (), Duration::from_secs(3600));
+                    .insert(message.author.id, (), Duration::from_secs(3600 * 4));
 
                 if let Err(err) = save_enabled_users(say_cache.to_vec(), &say_cache.path).await {
                     eprintln!("{err}");
@@ -230,6 +271,13 @@ impl EventHandler for Handler {
                     .await
                     .ok();
 
+                match err {
+                    JoinError::Dropped | JoinError::Driver(_) => {
+                        // TODO: restart bot
+                    }
+                    _ => {}
+                }
+
                 return;
             }
         };
@@ -259,8 +307,6 @@ impl EventHandler for Handler {
         let mut try_count = 0;
 
         loop {
-            let play_state;
-
             if try_count > 3 {
                 // TODO: err
                 return;
@@ -274,17 +320,17 @@ impl EventHandler for Handler {
                 .into_iter()
                 .collect::<Result<(), _>>();
 
-            if let Err(TrackError::Finished) = play_result {
-                play_state = PlayMode::End;
+            let play_state = if let Err(TrackError::Finished) = play_result {
+                PlayMode::End
             } else {
                 // sleep(Duration::from_millis(100)).await;
 
-                play_state = track
+                track
                     .get_info()
                     .await
                     .map(|x| x.playing)
-                    .unwrap_or(PlayMode::End);
-            }
+                    .unwrap_or(PlayMode::End)
+            };
 
             match play_state {
                 PlayMode::Play => break,
