@@ -157,7 +157,11 @@ impl EventHandler for Handler {
         }
 
         if message.content == "> help" {
-            let help_message = "마지막으로 활성화한 시간 또는 말한 시간 기준으로 4시간동안 아무 말도 하지 않으면 자동으로 비활성 돼요.\n\n`> sayEnable`\n`> sayDisable`";
+            let help_message = r"
+마지막으로 활성화한 시간 또는 말한 시간 기준으로 4시간동안 아무 말도 하지 않으면 자동으로 비활성 돼요.
+`> sayEnable`
+`> sayEnable @GORANI`
+`> sayDisable`";
 
             if let Err(err) = message.reply(&ctx.http, help_message).await {
                 eprintln!("{err}");
@@ -171,14 +175,25 @@ impl EventHandler for Handler {
             return;
         }
 
-        if message.content == "> sayEnable" {
+        fn parse_user_id(x: &str) -> Option<UserId> {
+            if x.starts_with("<@") && x.ends_with('>') {
+                x[2..x.len() - 1].parse().ok().map(UserId)
+            } else {
+                None
+            }
+        }
+
+        if message.content.starts_with("> sayEnable") {
+            let target_user = parse_user_id(message.content.replace("> sayEnable", "").trim())
+                .unwrap_or(message.author.id);
+
             {
                 let mut x = ctx.data.write().await;
                 let say_cache = x.get_mut::<SayCache>().unwrap();
 
                 say_cache
                     .users
-                    .insert(message.author.id, (), Duration::from_secs(3600 * 4));
+                    .insert(target_user, (), Duration::from_secs(3600 * 4));
 
                 if let Err(err) = save_enabled_users(say_cache.to_vec(), &say_cache.path).await {
                     eprintln!("{err}");
@@ -199,6 +214,10 @@ impl EventHandler for Handler {
         }
 
         if message.content == "> sayDisable" {
+            // 악용 가능성 높음. 가령 다른 사람이 임의로 비활성화 한다던가
+            // let target_user = parse_user_id(message.content.replace("> sayDisable", "").trim())
+            //     .unwrap_or(message.author.id);
+
             {
                 let mut x = ctx.data.write().await;
                 let say_cache = x.get_mut::<SayCache>().unwrap();
