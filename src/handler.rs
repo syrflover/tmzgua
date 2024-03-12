@@ -251,7 +251,7 @@ impl EventHandler for Handler {
             if r {
                 say_cache
                     .users
-                    .insert(message.author.id, (), Duration::from_secs(3600));
+                    .insert(message.author.id, (), Duration::from_secs(3600 * 4));
             }
 
             (r, say_cache.path.clone())

@@ -33,7 +33,7 @@ impl From<(Vec<UserId>, &Path)> for SayCache {
         let mut users = HashMap::new(TTLPolicy::new());
 
         for x in xs {
-            users.insert(x, (), Duration::from_secs(3600));
+            users.insert(x, (), Duration::from_secs(3600 * 4));
         }
 
         Self {
