@@ -27,6 +27,7 @@ use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
+    time::sleep,
 };
 
 use crate::{cfg::Config, encode_to_source::encode_to_source, say_cache::SayCache};
@@ -45,12 +46,12 @@ fn filter_regex(x: &str) -> bool {
     //     /(http|https|ftp|telnet|news|mms):\/\/[^\"'\s()]+/i, // url
     //     /```.+```/is, // code block
     // ];
-    let url_regex = Regex::new(r#"/(http|https|ftp|telnet|news|mms):\/\/[^\"'\s()]+/i"#).unwrap();
-    let code_block_regex = Regex::new(r#"```.+```/is"#).unwrap();
-    let user_id_regex = Regex::new(r#"<@[0-9]+>"#).unwrap();
+    let url_regex = Regex::new(r#"(?i)(http|https|ftp|telnet|news|mms)://[^"'\s()]+"#).unwrap();
+    let code_block_regex = Regex::new(r"(?s)```.+```").unwrap();
+    let user_id_regex = Regex::new(r"<@[0-9]+>").unwrap();
     let channel_id_regex = Regex::new(r#"<#[0-9]+>"#).unwrap();
-    let custom_emoji_id_regex = Regex::new(r#"<:.+:[0-9]+>"#).unwrap();
-    let external_custom_emoji_regex = Regex::new(r#"<.{0,1}:[0-9]+>"#).unwrap(); // <a:DDo:1055872203473825852>
+    let custom_emoji_id_regex = Regex::new(r#"<:\w+:[0-9]+>"#).unwrap();
+    let external_custom_emoji_regex = Regex::new(r#"<\w{0,1}:[0-9]+>"#).unwrap(); // <a:DDo:1055872203473825852>
 
     url_regex.find(x).is_some()
         || code_block_regex.find(x).is_some()
@@ -77,12 +78,20 @@ async fn make_siri_voice(p: impl AsRef<Path>, content: &str) -> io::Result<Input
     let p = p.as_ref();
 
     if !p.exists() {
-        Command::new("say")
+        let say = Command::new("say")
             .arg(content)
             .arg("-o")
             .arg(p.as_os_str())
-            .output()
-            .await?;
+            .output();
+
+        tokio::select! {
+            _ = sleep(Duration::from_secs(6)) => {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            res = say => {
+                res?;
+            }
+        }
     }
 
     match File::open(p).await {
@@ -270,7 +279,7 @@ impl EventHandler for Handler {
         let hashed = hasher.finish();
 
         #[cfg(target_os = "macos")]
-        let save_path = cache_path.join(format!("{hashed}.aiff"));
+        let save_path = cache_path.join(format!("{hashed}.aac"));
         #[cfg(target_os = "windows")]
         let save_path = todo!();
 
