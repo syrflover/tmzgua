@@ -9,18 +9,19 @@ use std::{
 use fnv::FnvHasher;
 use regex::Regex;
 use serenity::{
+    all::ActivityData,
     model::{
         channel::Message,
         gateway::Ready,
         id::{ChannelId, GuildId, UserId},
-        prelude::{Activity, MessageType, ReactionType},
+        prelude::{MessageType, ReactionType},
     },
     prelude::*,
 };
 use songbird::{
-    error::JoinError,
+    error::{ControlError, JoinError},
     input::Input,
-    tracks::{PlayMode, TrackError},
+    tracks::PlayMode,
     Call,
 };
 use tokio::{
@@ -30,7 +31,7 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{cfg::Config, encode_to_source::encode_to_source, say_cache::SayCache};
+use crate::{cfg::Config, say_cache::SayCache};
 
 fn filter_regex(x: &str) -> bool {
     // const replaceRegExp: [RegExp, string][] = [
@@ -68,40 +69,51 @@ async fn get_voice_handler(
 ) -> Result<Arc<Mutex<Call>>, JoinError> {
     let manager = songbird::get(ctx).await.unwrap().clone();
 
-    let (handler_lock, join_result) = manager.join(guild_id, channel_id).await;
-
-    join_result.map(|_| handler_lock)
+    manager.join(guild_id, channel_id).await
 }
 
 #[cfg(target_os = "macos")]
-async fn make_siri_voice(p: impl AsRef<Path>, content: &str) -> io::Result<Input> {
-    let p = p.as_ref();
+async fn make_siri_voice(p: impl AsRef<Path>, content: &str) -> anyhow::Result<Input> {
+    use anyhow::anyhow;
+
+    let p = p.as_ref().to_path_buf();
 
     if !p.exists() {
         let say = Command::new("say")
             .arg(content)
             .arg("-o")
             .arg(p.as_os_str())
+            // .args(["--file-format", "aiff", "--data-format", "aac"])
             .output();
 
         tokio::select! {
             _ = sleep(Duration::from_secs(6)) => {
-                return Err(io::ErrorKind::TimedOut.into());
+                return Err(anyhow!("timeout"));
             }
             res = say => {
-                res?;
+              res?;
             }
         }
     }
 
-    match File::open(p).await {
-        Ok(r) => Ok(encode_to_source(r.into_std().await).await.unwrap()),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            // TODO: err 구분해야됨
-            Err(err)
-        }
-        Err(err) => Err(err),
-    }
+    let r = songbird::input::File::new(p);
+
+    // r.raw.spawn_loader();
+
+    Ok(r.into())
+
+    // Ok(encode_to_source(File::open(p).await?.into_std().await)
+    //     .await
+    //     .unwrap())
+
+    // match File::open(p).await {
+    //     Ok(r) => Ok(encode_to_source(r.into_std().await).await.unwrap()),
+    //     Err(err) if err.kind() == io::ErrorKind::NotFound => {
+    //         // TODO: err 구분해야됨
+    //         Err(err)
+    //     }
+    //     Err(err) => Err(err),
+    // }
 }
 
 pub struct Handler;
@@ -186,7 +198,7 @@ impl EventHandler for Handler {
 
         fn parse_user_id(x: &str) -> Option<UserId> {
             if x.starts_with("<@") && x.ends_with('>') {
-                x[2..x.len() - 1].parse().ok().map(UserId)
+                x[2..x.len() - 1].parse().ok().map(|x| UserId::new(x))
             } else {
                 None
             }
@@ -279,7 +291,7 @@ impl EventHandler for Handler {
         let hashed = hasher.finish();
 
         #[cfg(target_os = "macos")]
-        let save_path = cache_path.join(format!("{hashed}.aac"));
+        let save_path = cache_path.join(format!("{hashed}.aiff"));
         #[cfg(target_os = "windows")]
         let save_path = todo!();
 
@@ -330,7 +342,7 @@ impl EventHandler for Handler {
         #[cfg(target_os = "windows")]
         let mut source = todo!();
 
-        let mut track = handler.play_only_source(source);
+        let mut track = handler.play_only_input(source);
 
         let mut try_count = 0;
 
@@ -348,7 +360,7 @@ impl EventHandler for Handler {
                 .into_iter()
                 .collect::<Result<(), _>>();
 
-            let play_state = if let Err(TrackError::Finished) = play_result {
+            let play_state = if let Err(ControlError::Finished) = play_result {
                 PlayMode::End
             } else {
                 // sleep(Duration::from_millis(100)).await;
@@ -386,7 +398,7 @@ impl EventHandler for Handler {
                         source = todo!();
                     }
 
-                    track = handler.play_only_source(source);
+                    track = handler.play_only_input(source);
                 }
 
                 _ => {}
@@ -411,7 +423,7 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, ctx: Context, _ready: Ready) {
-        ctx.set_activity(Activity::playing("> help")).await;
+        ctx.set_activity(Some(ActivityData::playing("> help")));
 
         let mut x = ctx.data.write().await;
 

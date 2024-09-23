@@ -20,11 +20,11 @@ impl Config {
     }
 
     pub fn guild_id(&self) -> GuildId {
-        GuildId(self.guild_id)
+        GuildId::new(self.guild_id)
     }
 
     pub fn channel_id(&self) -> ChannelId {
-        ChannelId(self.channel_id)
+        ChannelId::new(self.channel_id)
     }
 
     pub fn cache(&self) -> &Path {

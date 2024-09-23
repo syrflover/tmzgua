@@ -1,16 +1,27 @@
 use std::time::Duration;
 
-use serenity::{
-    framework::StandardFramework, futures::future::join_all, prelude::GatewayIntents, Client,
-};
+use serenity::{futures::future::join_all, prelude::GatewayIntents, Client};
 use songbird::SerenityInit;
 use tap::Pipe;
 use tmzgua::{cfg::Config, handler::Handler};
 use tokio::time::sleep;
+use tracing::Level;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() {
     println!("Hello, world!");
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(Level::INFO.into())
+        .from_env_lossy();
+
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_line_number(true)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     // read config file
     let cfgs: Vec<Config> = tokio::fs::read_to_string("./cfg.json")
@@ -30,11 +41,8 @@ async fn main() {
         tokio::fs::create_dir_all(cfg.cache()).await.unwrap();
 
         let task = tokio::spawn(async move {
-            let framework = StandardFramework::new();
-
             let mut client = Client::builder(cfg.token(), intents)
                 .event_handler(Handler)
-                .framework(framework)
                 .register_songbird()
                 .await
                 .unwrap();
