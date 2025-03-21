@@ -30,6 +30,7 @@ use tokio::{
     process::Command,
     time::sleep,
 };
+use uuid::{Timestamp, Uuid};
 
 use crate::{cfg::Config, say_cache::SayCache};
 
@@ -286,12 +287,10 @@ impl EventHandler for Handler {
             return;
         }
 
-        let mut hasher = FnvHasher::default();
-        message.content.hash(&mut hasher);
-        let hashed = hasher.finish();
+        let uuid = Uuid::new_v7(Timestamp::now(uuid::ContextV7::new()));
 
         #[cfg(target_os = "macos")]
-        let save_path = cache_path.join(format!("{hashed}.aiff"));
+        let save_path = cache_path.join(format!("{uuid}.aiff"));
         #[cfg(target_os = "windows")]
         let save_path = todo!();
 
@@ -420,6 +419,10 @@ impl EventHandler for Handler {
                 .await
                 .ok();
         }
+
+        if let Err(err) = tokio::fs::remove_file(save_path).await {
+            tracing::error!("{err}");
+        };
     }
 
     async fn ready(&self, ctx: Context, _ready: Ready) {
