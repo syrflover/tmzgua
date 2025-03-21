@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use serenity::{futures::future::join_all, prelude::GatewayIntents, Client};
 use songbird::SerenityInit;
@@ -7,6 +7,25 @@ use tmzgua::{cfg::Config, handler::Handler};
 use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
+
+async fn find_config_file() -> Option<String> {
+    if let Ok(r) = tokio::fs::read_to_string("./cfg.json").await {
+        return Some(r);
+    }
+
+    let p = std::env::var("HOME")
+        .unwrap()
+        .parse::<PathBuf>()
+        .unwrap()
+        .join(".tmzgua")
+        .join("cfg.json");
+
+    if let Ok(r) = tokio::fs::read_to_string(p).await {
+        return Some(r);
+    }
+
+    None
+}
 
 #[tokio::main]
 async fn main() {
@@ -24,7 +43,7 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     // read config file
-    let cfgs: Vec<Config> = tokio::fs::read_to_string("./cfg.json")
+    let cfgs: Vec<Config> = find_config_file()
         .await
         .unwrap()
         .pipe(|x| serde_json::from_str(&x).unwrap());

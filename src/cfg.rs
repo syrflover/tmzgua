@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 use serenity::{
@@ -27,8 +27,8 @@ impl Config {
         ChannelId::new(self.channel_id)
     }
 
-    pub fn cache(&self) -> &Path {
-        Path::new(&self.cache)
+    pub fn cache(&self) -> PathBuf {
+        PathBuf::from(&self.cache)
     }
 }
 
